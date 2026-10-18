@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Governed SAP Agent Walkthrough</title>
+<meta name="description" content="An AI agent on SAP BTP that cannot invent a number: HANA Cloud, a CAP service that does the arithmetic, and an audit row for every call.">
+<style>
+  :root{--bg:#f7f8fa;--fg:#14202e;--muted:#566474;--card:#fff;--line:#dde3ea;--accent:#0a6ed1;--warn:#b45309;--code:#eef2f6}
+  @media (prefers-color-scheme:dark){:root{--bg:#0e1621;--fg:#e6edf5;--muted:#9aa9b9;--card:#16212e;--line:#27384a;--accent:#5aa9f5;--warn:#f0b35a;--code:#0b121a}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  main{max-width:860px;margin:0 auto;padding:32px 16px 64px}
+  h1{font-size:clamp(1.7rem,4vw,2.3rem);line-height:1.2;margin:0 0 8px}
+  h2{font-size:1.3rem;margin:40px 0 8px}
+  p{margin:8px 0}
+  .lede{color:var(--muted);font-size:1.05rem}
+  .note{border-left:4px solid var(--warn);background:var(--card);padding:10px 14px;border-radius:6px;margin:20px 0;font-size:.95rem}
+  video,img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:var(--card);display:block}
+  figure{margin:16px 0}
+  figcaption{color:var(--muted);font-size:.9rem;margin-top:6px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:12px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .card b{display:block;margin-bottom:2px}
+  code,pre{background:var(--code);border-radius:6px;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace}
+  code{padding:1px 5px}
+  pre{padding:12px;overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:.95rem}
+  th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left}
+  a{color:var(--accent)}
+  footer{margin-top:40px;color:var(--muted);font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>A governed AI agent on SAP BTP</h1>
+  <p class="lede">The model understands the question and phrases the answer. It cannot invent the number. Every quantity comes from an audited SAP service, and every call leaves a row on HANA Cloud.</p>
+
+  <div class="note"><b>How to read this page.</b> The live app runs on a personal SAP BTP trial account. The HANA Cloud free tier stops every night and the service sits behind SAP login, so it cannot be left open to the public. This page replays recorded output from real runs. Data is sample data. The language model is an external one, and the chat front end is a custom Cloud Foundry app, not an SAP-native one.</div>
+
+  <h2>Walkthrough video (5 min)</h2>
+  <video controls preload="metadata" playsinline src="video.mp4"></video>
+
+  <h2>The problem</h2>
+  <p>I asked an agent built the standard way in SAP's Joule Studio whether a maintenance order was ready. The data said material 41 needed 1.7 and had 500 available. The agent still reported a shortage of 1.2, and the debug logs could not show why.</p>
+  <figure>
+    <img src="img/joule.jpg" alt="Joule answer reporting material 41 short by 1.2 units although 500 are available" loading="lazy">
+    <figcaption>Standard build: a wrong shortage, with no trace of how it was produced.</figcaption>
+  </figure>
+
+  <h2>The change</h2>
+  <div class="grid">
+    <div class="card"><b>SAP HANA Cloud</b>Holds the stock data.</div>
+    <div class="card"><b>CAP service</b>Does the lookups and all arithmetic in code.</div>
+    <div class="card"><b>Agent</b>Calls governed tools only. It never calculates.</div>
+    <div class="card"><b>Audit trail</b>One row per call with a correlation ID, including failed and unauthorised calls.</div>
+  </div>
+
+  <h2>Recorded run: order 1000001</h2>
+  <p>The service returns the verdict, the quantities and the stock locations it used. Material 41 is sufficient. Material 42 is short by 1.2.</p>
+  <figure>
+    <img src="img/tests.png" alt="Terminal output of validateOrderStock for order 1000001 with SHORTAGE verdict, and a 403 on the audit log" loading="lazy">
+    <figcaption>Live test output. Note the last call: reading the audit log without the auditor scope returns 403.</figcaption>
+  </figure>
+  <figure>
+    <img src="img/chat.png" alt="Chat answer: order 1000001 not ready, material 42 short by 1.2" loading="lazy">
+    <figcaption>The chat front end phrases the same numbers. The conversation ID ties the answer to its audit rows.</figcaption>
+  </figure>
+
+  <h2>Every call is traceable</h2>
+  <figure>
+    <img src="img/audit.png" alt="Audit rows on HANA showing OK 200, ERROR 404, DENIED 403 and DENIED 401 entries" loading="lazy">
+    <figcaption>Audit rows read from HANA: a successful check, a lookup of an unknown material (404), an unauthorised audit-log read (403) and an unauthenticated request (401).</figcaption>
+  </figure>
+
+  <h2>Access control</h2>
+  <table>
+    <tr><th>Caller</th><th>Can do</th><th>Cannot do</th></tr>
+    <tr><td>Agent scope</td><td>Call the six stock tools</td><td>Read the audit log</td></tr>
+    <tr><td>Auditor scope</td><td>Read the audit log</td><td>Call the agent tools</td></tr>
+    <tr><td>No token</td><td>Nothing (401)</td><td>Everything</td></tr>
+  </table>
+
+  <h2>Limits, stated plainly</h2>
+  <ul>
+    <li>Sample data on a trial account, not a production system.</li>
+    <li>The language model is outside SAP.</li>
+    <li>The chat front end is a custom Cloud Foundry app rather than an SAP-native one.</li>
+  </ul>
+
+  <footer>Yuvaraj Aravindan · AI Agentic Enterprises · <a href="/">ai-agentic-enterprises.com</a></footer>
+</main>
+</body>
+</html>
